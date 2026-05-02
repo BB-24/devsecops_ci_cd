@@ -116,6 +116,8 @@ jobs:
           sed -i "s|image: .*|image: ${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }}|" k8s/deployment.yaml
 
       - name: Create PR (GitOps)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
