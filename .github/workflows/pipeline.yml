@@ -7,13 +7,15 @@ on:
     branches: ["main"]
 
 permissions:
-  contents: read
+  contents: write
   security-events: write
+  id-token: write   # ✅ required for cosign
+  pull-requests: write
 
 jobs:
 
   # -------------------------
-  # CI (RUNS ON PR + PUSH)
+  # CI (PR + PUSH)
   # -------------------------
   ci:
     runs-on: ubuntu-latest
@@ -27,22 +29,25 @@ jobs:
           cache: npm
 
       - run: npm ci
-
       - run: npm run test
-
       - run: npm run lint
-
       - run: npm run build
 
       - name: Dependency Scan
         run: npm audit --audit-level=high
 
-      # SECRET SCAN
       - name: Gitleaks Scan
         uses: gitleaks/gitleaks-action@v2
 
+      # ✅ K8s Config Scan
+      - name: Scan Kubernetes manifests
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: config
+          scan-ref: k8s/
+
   # -------------------------
-  # BUILD & PUSH (ONLY MAIN)
+  # BUILD + PUSH
   # -------------------------
   build-and-push:
     needs: ci
@@ -54,44 +59,80 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # ✅ FIXED login
       - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # Build image
       - name: Build Image
-        run: docker build -t tic-tac-toe:${{ github.sha }} .
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }} .
 
+      # Scan image
       - name: Scan Image (Trivy)
         uses: aquasecurity/trivy-action@0.20.0
         with:
-          image-ref: tic-tac-toe:${{ github.sha }}
+          image-ref: ${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }}
           severity: HIGH,CRITICAL
           exit-code: 1
 
+      # Push image
       - name: Push Image
-        run: |
-          docker tag tic-tac-toe:${{ github.sha }} ${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }}
+        run: docker push ${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }}
+
+      # -------------------------
+      # 🔐 SUPPLY CHAIN SECURITY
+      # -------------------------
+
+      # SBOM
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }}
+
+      # Cosign install
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      # Sign image
+      - name: Sign Image
+        run: cosign sign --yes ${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }}
 
   # -------------------------
-  # DEPLOY (ARGOCD TRIGGER)
+  # GITOPS PR (PR-based deploy)
   # -------------------------
-  deploy:
+  gitops-pr:
     needs: build-and-push
     runs-on: ubuntu-latest
+    environment: production   # ✅ approval gate
 
     steps:
       - uses: actions/checkout@v4
 
+      # Update image tag (GitOps trigger)
       - name: Update K8s Manifest
         run: |
           sed -i "s|image: .*|image: ${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }}|" k8s/deployment.yaml
 
-      - name: Commit & Push
+      - name: Create PR (GitOps)
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          if git diff --quiet; then
+            echo "No manifest changes to propose."
+            exit 0
+          fi
+
+          BRANCH="gitops/deploy-${{ github.sha }}"
+          git checkout -b "${BRANCH}"
           git add k8s/deployment.yaml
-          git commit -m "Deploy image ${{ github.sha }}"
-          git push
+          git commit -m "chore(gitops): deploy image ${{ github.sha }}"
+          git push -u origin "${BRANCH}"
+
+          gh pr create \
+            --title "Deploy ${{ github.sha }}" \
+            --body "Updates \`k8s/deployment.yaml\` image tag to \`${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }}\`.\n\nMerging this PR triggers the Argo CD sync workflow." \
+            --base main \
+            --head "${BRANCH}"

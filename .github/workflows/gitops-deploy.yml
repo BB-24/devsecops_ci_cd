@@ -1,0 +1,91 @@
+name: GitOps Deploy (Argo CD)
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "k8s/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # -------------------------
+      # ☸️  MINIKUBE CLUSTER
+      # -------------------------
+      - name: Start Minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          driver: docker
+
+      - name: Verify cluster
+        run: |
+          kubectl version --client
+          kubectl get nodes
+
+      # -------------------------
+      # 🚀 ARGO CD (in Minikube)
+      # -------------------------
+      - name: Install Argo CD
+        run: |
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+          kubectl rollout status deployment/argocd-server -n argocd --timeout=300s
+
+      - name: Install Argo CD CLI
+        run: |
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          sudo install -m 555 argocd /usr/local/bin/argocd
+          argocd version --client
+
+      - name: Login to Argo CD (port-forward)
+        run: |
+          kubectl -n argocd port-forward svc/argocd-server 8080:443 >/tmp/argocd-portforward.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -kfsS https://localhost:8080/healthz && break
+            sleep 2
+          done
+          ARGOCD_PASSWORD="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)"
+          argocd login localhost:8080 --username admin --password "$ARGOCD_PASSWORD" --insecure
+
+      - name: Create/Sync Argo CD app (auto-sync)
+        env:
+          REPO_URL: https://github.com/${{ github.repository }}.git
+        run: |
+          # If the repo is private, Argo CD needs credentials to pull it.
+          argocd repo add "$REPO_URL" --username "${{ github.actor }}" --password "${{ github.token }}" --upsert
+
+          argocd app create tic-tac-toe \
+            --repo "$REPO_URL" \
+            --path k8s \
+            --dest-server https://kubernetes.default.svc \
+            --dest-namespace default \
+            --sync-policy automated \
+            --self-heal \
+            --auto-prune \
+            --upsert
+
+          argocd app sync tic-tac-toe
+          argocd app wait tic-tac-toe --health --timeout 300
+
+      # -------------------------
+      # 🧪 POST-DEPLOY TEST
+      # -------------------------
+      - name: Smoke Test
+        run: |
+          SERVICE_URL="$(minikube service tic-tac-toe-service --url -n default | head -n 1)"
+          echo "Service URL: ${SERVICE_URL}"
+          for i in $(seq 1 30); do
+            curl -fsS "${SERVICE_URL}/" && exit 0
+            sleep 2
+          done
+          exit 1
+

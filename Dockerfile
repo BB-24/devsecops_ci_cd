@@ -18,12 +18,15 @@
     
     # Remove default nginx static files
     RUN rm -rf /usr/share/nginx/html/*
+
+    # Run as non-root (k8s securityContext requires it)
+    COPY nginx.conf /etc/nginx/conf.d/default.conf
     
     # Copy build output
     COPY --from=builder /app/dist /usr/share/nginx/html
     
     # Expose port
-    EXPOSE 80
+    EXPOSE 8080
     
     # Run nginx
     CMD ["nginx", "-g", "daemon off;"]
