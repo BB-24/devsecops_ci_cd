@@ -1,0 +1,29 @@
+# -------- BUILD STAGE --------
+    FROM node:20-alpine AS builder
+
+    WORKDIR /app
+    
+    # Install deps
+    COPY package*.json ./
+    RUN npm ci
+    
+    # Copy source
+    COPY . .
+    
+    # Build app
+    RUN npm run build
+    
+    # -------- PRODUCTION STAGE --------
+    FROM nginx:alpine
+    
+    # Remove default nginx static files
+    RUN rm -rf /usr/share/nginx/html/*
+    
+    # Copy build output
+    COPY --from=builder /app/dist /usr/share/nginx/html
+    
+    # Expose port
+    EXPOSE 80
+    
+    # Run nginx
+    CMD ["nginx", "-g", "daemon off;"]
