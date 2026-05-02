@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: tic-tac-toe
-          image: bb2410/tic-tac-toe:IMAGE_TAG   # 👈 will be replaced by CI
+          image: bb2410/tic-tac-toe:27d9258a2fdacf9273e485cd7bac6a882b024d3d
           ports:
             - containerPort: 8080
 
