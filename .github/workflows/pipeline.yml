@@ -41,7 +41,7 @@ jobs:
 
       # ✅ K8s Config Scan
       - name: Scan Kubernetes manifests
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@v0.20.0
         with:
           scan-type: config
           scan-ref: k8s/
@@ -71,7 +71,7 @@ jobs:
 
       # Scan image
       - name: Scan Image (Trivy)
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@v0.20.0
         with:
           image-ref: ${{ secrets.DOCKER_USERNAME }}/tic-tac-toe:${{ github.sha }}
           severity: HIGH,CRITICAL
