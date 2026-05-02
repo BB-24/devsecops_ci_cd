@@ -15,6 +15,9 @@
     
     # -------- PRODUCTION STAGE --------
     FROM nginx:alpine
+
+    # Pull in latest Alpine security fixes
+    RUN apk update && apk upgrade --no-cache
     
     # Remove default nginx static files
     RUN rm -rf /usr/share/nginx/html/*
