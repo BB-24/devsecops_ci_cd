@@ -117,7 +117,9 @@ jobs:
 
       - name: Create PR (GitOps)
         env:
-          GH_TOKEN: ${{ github.token }}
+          # NOTE: `github.token` can be blocked from creating PRs by repo/org policy.
+          # Use a fine-scoped PAT stored as `GH_PAT` (classic: `repo` scope; fine-grained: Contents+Pull requests: Read/Write).
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
