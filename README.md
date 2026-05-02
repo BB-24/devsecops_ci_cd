@@ -1,16 +1,83 @@
-# React + Vite
+# Tick-Tac-Toe (React + Vite) with DevSecOps CI/CD
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A simple **Tick-Tac-Toe** web game built with **React** + **Vite**, packaged as a container served by **Nginx**, and shipped with a **DevSecOps GitHub Actions pipeline** (tests, lint, secret scanning, dependency scanning, container/config scanning, SBOM generation, signing, and GitOps PR-based deploy flow).
 
-Currently, two official plugins are available:
+## App
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### Tech stack
 
-## React Compiler
+- **Frontend**: React 18, Vite
+- **Testing**: Vitest + Testing Library
+- **Linting**: ESLint
+- **Container runtime**: Nginx (serves `dist/`)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Local development
 
-## Expanding the ESLint configuration
+```bash
+npm install
+npm run dev
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Test + lint + build
+
+```bash
+npm test
+npm run lint
+npm run build
+```
+
+### Run with Docker
+
+Build and run the container locally:
+
+```bash
+docker build -t tic-tac-toe:local .
+docker run --rm -p 8080:8080 tic-tac-toe:local
+```
+
+Then open `http://localhost:8080`.
+
+## Kubernetes
+
+Kubernetes manifests live in `k8s/` (deployment + service).
+
+```bash
+kubectl apply -f k8s/
+```
+
+## DevSecOps pipeline (GitHub Actions)
+
+Workflow: `.github/workflows/pipeline.yml`
+
+### Stages
+
+- **CI (PR + push)**
+  - `npm ci`, `npm test`, `npm run lint`, `npm run build`
+  - **Dependency scan**: `npm audit --audit-level=high`
+  - **Secret scan**: Gitleaks
+  - **K8s config scan**: Trivy (`scan-type: config`, `scan-ref: k8s/`)
+- **Build & push (push to `main`)**
+  - Build Docker image
+  - **Image scan**: Trivy (fails on HIGH/CRITICAL)
+  - Push image to registry
+- **Supply chain**
+  - **SBOM**: Anchore SBOM action
+  - **Sign**: Cosign keyless signing via OIDC (`id-token: write`)
+- **GitOps PR**
+  - Updates `k8s/deployment.yaml` image tag to `${{ github.sha }}`
+  - Creates a PR (protected by `environment: production`)
+
+### Required secrets
+
+Configure in **Repo → Settings → Secrets and variables → Actions**:
+
+- **`DOCKER_USERNAME`**: registry namespace/user
+- **`DOCKER_PASSWORD`**: registry token/password with **push** scope
+- **`GH_PAT`**: token used by `gh pr create` in the GitOps step  
+  - Fine-grained PAT: this repo + **Contents: Read/Write** and **Pull requests: Read/Write**
+
+### Notes
+
+- **Gitleaks on PRs**: requires `GITHUB_TOKEN` passed to the action step.
+- **Trivy tags**: use the `v`-prefixed tag (example `aquasecurity/trivy-action@v0.20.0`).
+- **Runtime image security**: the runtime stage upgrades Alpine packages during build to pull in security fixes.
