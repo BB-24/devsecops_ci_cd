@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: tic-tac-toe
-          image: bb2410/tic-tac-toe:318247568ece57f1628faafd835c8b09d1248cf1
+          image: bb2410/tic-tac-toe:eb2de1545d18293ce6ebbc92d0d23d05f486d831
           ports:
             - containerPort: 8080
 
