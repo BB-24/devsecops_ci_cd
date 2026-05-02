@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import './tick-tack-toe.css'
 
 import o_icon from "../assets/o.png";
