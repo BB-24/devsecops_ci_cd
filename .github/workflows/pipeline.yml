@@ -38,6 +38,8 @@ jobs:
 
       - name: Gitleaks Scan
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       # ✅ K8s Config Scan
       - name: Scan Kubernetes manifests
